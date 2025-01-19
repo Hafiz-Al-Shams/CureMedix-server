@@ -36,7 +36,7 @@ async function run() {
 
 
 
-        const newMedicineCollection = client.db('cureMedixDB').collection('medicines');
+        const newMedicineCollection = client.db('cureMedixDB').collection('medicines2');
 
 
 
