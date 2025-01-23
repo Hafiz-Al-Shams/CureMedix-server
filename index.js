@@ -37,9 +37,10 @@ async function run() {
 
 
 
-        const medicineCollection = client.db('cureMedixDB').collection('medicines2');
+        const medicineCollection = client.db('cureMedixDB').collection('medicines');
         const userCollection = client.db("cureMedixDB").collection("users");
         const cartCollection = client.db("cureMedixDB").collection("carts");
+        const categoryCollection = client.db("cureMedixDB").collection("categories");
 
 
         // JWT related apis
@@ -50,7 +51,7 @@ async function run() {
         })
 
 
-        // JWT related middlewares 
+        // JWT related middlewares
         const verifyToken = (req, res, next) => {
             console.log('inside verify token', req.headers.authorization);
             if (!req.headers.authorization) {
@@ -88,6 +89,44 @@ async function run() {
         app.get('/medicines', async (req, res) => {
             const cursor = medicineCollection.find();
             const result = await cursor.toArray();
+            res.send(result);
+        });
+
+
+        // category related apis
+        app.get('/categories', verifyToken, verifyAdmin, async (req, res) => {
+            const result = await categoryCollection.find().toArray();
+            res.send(result);
+        });
+
+        app.get('/categories/:id', async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) }
+            const result = await categoryCollection.findOne(query);
+            res.send(result);
+        });
+
+
+        app.post('/categories', verifyToken, verifyAdmin, async (req, res) => {
+            const category = req.body;
+            const result = await categoryCollection.insertOne(category);
+            res.send(result);
+        });
+
+
+        app.patch('/categories/:id', verifyToken, verifyAdmin, async (req, res) => {
+            const category = req.body;
+            const id = req.params.id;
+            const filter = { _id: new ObjectId(id) }
+            const updatedDoc = {
+                $set: {
+                    name: category.name,
+                    image: category.image,
+                    details: category.details,
+                }
+            }
+
+            const result = await categoryCollection.updateOne(filter, updatedDoc)
             res.send(result);
         });
 
