@@ -9,7 +9,17 @@ const port = process.env.PORT || 5000;
 
 
 // middleware
-app.use(cors());
+app.use(
+    cors({
+        origin: [
+            "http://localhost:5173",
+            "https://cure-medix.web.app",
+            "https://cure-medix.firebaseapp.com",
+            "https://cure-medix-by-hafiz-al-shams1917.netlify.app",
+        ],
+        credentials: true,
+    })
+);
 app.use(express.json());
 
 
