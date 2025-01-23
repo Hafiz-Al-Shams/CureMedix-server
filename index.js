@@ -53,7 +53,7 @@ async function run() {
 
         // JWT related middlewares
         const verifyToken = (req, res, next) => {
-            console.log('inside verify token', req.headers.authorization);
+            // console.log('inside verify token', req.headers.authorization);
             if (!req.headers.authorization) {
                 return res.status(401).send({ message: 'unauthorized access' });
             }
@@ -127,6 +127,13 @@ async function run() {
             }
 
             const result = await categoryCollection.updateOne(filter, updatedDoc)
+            res.send(result);
+        });
+
+        app.delete('/categories/:id', verifyToken, verifyAdmin, async (req, res) => {
+            const id = req.params.id;
+            const query = { _id: new ObjectId(id) }
+            const result = await categoryCollection.deleteOne(query);
             res.send(result);
         });
 
