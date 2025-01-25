@@ -369,6 +369,41 @@ async function run() {
 
 
         // testing
+        // testing
+
+        // manage payment apis
+        app.get('/manage-payments', async (req, res) => {
+            const payments = await paymentCollection.find().toArray();
+            res.send(payments);
+        });
+
+
+        app.patch('/manage-payments/:transactionId', async (req, res) => {
+            const { transactionId } = req.params;
+            const filter = { transactionId };
+            const updatedDoc = {
+                $set: {
+                    status: 'paid'
+                }
+            }
+            const result = await paymentCollection.updateOne(filter, updatedDoc);
+            res.send(result);
+        });
+
+
+
+        // testing
+        // testing
+
+
+
+
+
+
+
+
+
+        // testing
 
         // order status
         // app.get('/order-stats', async (req, res) => {
