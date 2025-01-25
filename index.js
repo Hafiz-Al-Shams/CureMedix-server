@@ -286,7 +286,7 @@ async function run() {
 
 
 
-        // stripe payment intent
+        // stripe payment apis
         app.post('/create-payment-intent', async (req, res) => {
             const { price } = req.body;
             const amount = parseInt(price * 100);
@@ -331,6 +331,92 @@ async function run() {
 
             res.send({ paymentResult, deleteResult });
         });
+
+
+        // stats or analytics
+        app.get('/admin-stats', verifyToken, verifyAdmin, async (req, res) => {
+            const users = await userCollection.estimatedDocumentCount();
+            const medicines = await medicineCollection.estimatedDocumentCount();
+            const orders = await paymentCollection.estimatedDocumentCount();
+
+            // simple but not the best way
+            // const payments = await paymentCollection.find().toArray();
+            // const revenue = payments.reduce((total, payment) => total + payment.price, 0);
+
+            const result = await paymentCollection.aggregate([
+                {
+                    $group: {
+                        _id: null,
+                        totalRevenue: {
+                            $sum: '$price'
+                        }
+                    }
+                }
+            ]).toArray();
+
+            const revenue = result.length > 0 ? result[0].totalRevenue : 0;
+
+            res.send({
+                users,
+                medicines,
+                orders,
+                revenue
+            })
+        })
+
+
+
+
+
+        // testing
+
+        // order status
+        // app.get('/order-stats', async (req, res) => {
+        //     const result = await paymentCollection.aggregate([
+        //         {
+        //             $unwind: '$medicineIds'
+        //         },
+        // {
+        //     $lookup: {
+        //         from: 'medicines',
+        //         localField: 'medicineIds',
+        //         foreignField: '_id',
+        //         as: 'medicineItems'
+        //     }
+        // },
+        // {
+        //     $unwind: '$medicineItems'
+        // },
+
+
+        // {
+        //     $group: {
+        //         _id: '$medicineItems.category',
+        //         quantity: { $sum: 1 },
+        //         revenue: { $sum: '$medicineItems.price' }
+        //     }
+        // },
+        // {
+        //     $project: {
+        //         _id: 0,
+        //         category: '$_id',
+        //         quantity: '$quantity',
+        //         revenue: '$revenue'
+        //     }
+        // }
+
+
+        //     ]).toArray();
+
+        //     res.send(result);
+
+        // });
+
+        // testing
+
+
+
+
 
 
 
