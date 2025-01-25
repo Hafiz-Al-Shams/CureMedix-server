@@ -64,6 +64,7 @@ async function run() {
         const userCollection = client.db("cureMedixDB").collection("users");
         const cartCollection = client.db("cureMedixDB").collection("carts");
         const categoryCollection = client.db("cureMedixDB").collection("categories");
+        const paymentCollection = client.db("cureMedixDB").collection("payments");
 
 
         // JWT related apis
@@ -303,31 +304,33 @@ async function run() {
         });
 
 
-        // app.get('/payments/:email', verifyToken, async (req, res) => {
-        //     const query = { email: req.params.email }
-        //     if (req.params.email !== req.decoded.email) {
-        //         return res.status(403).send({ message: 'forbidden access' });
-        //     }
-        //     const result = await paymentCollection.find(query).toArray();
-        //     res.send(result);
-        // })
+        app.get('/payments/:email', verifyToken, async (req, res) => {
+            const query = { email: req.params.email }
+            if (req.params.email !== req.decoded.email) {
+                return res.status(403).send({ message: 'forbidden access' });
+            }
+            const result = await paymentCollection.find(query).toArray();
+            res.send(result);
+        });
 
-        // app.post('/payments', async (req, res) => {
-        //     const payment = req.body;
-        //     const paymentResult = await paymentCollection.insertOne(payment);
 
-        //     //  carefully delete each item from the cart
-        //     console.log('payment info', payment);
-        //     const query = {
-        //         _id: {
-        //             $in: payment.cartIds.map(id => new ObjectId(id))
-        //         }
-        //     };
 
-        //     const deleteResult = await cartCollection.deleteMany(query);
+        app.post('/payments', async (req, res) => {
+            const payment = req.body;
+            const paymentResult = await paymentCollection.insertOne(payment);
 
-        //     res.send({ paymentResult, deleteResult });
-        // })
+            // deleting each items from the cart
+            console.log('payment info', payment);
+            const query = {
+                _id: {
+                    $in: payment.cartIds.map(id => new ObjectId(id))
+                }
+            };
+
+            const deleteResult = await cartCollection.deleteMany(query);
+
+            res.send({ paymentResult, deleteResult });
+        });
 
 
 
