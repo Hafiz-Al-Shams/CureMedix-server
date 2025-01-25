@@ -333,6 +333,8 @@ async function run() {
         });
 
 
+
+
         // stats or analytics
         app.get('/admin-stats', verifyToken, verifyAdmin, async (req, res) => {
             const users = await userCollection.estimatedDocumentCount();
@@ -356,11 +358,43 @@ async function run() {
 
             const revenue = result.length > 0 ? result[0].totalRevenue : 0;
 
+            const pendingResult = await paymentCollection.aggregate([
+                {
+                    $match: { status: "pending" }
+                },
+                {
+                    $group: {
+                        _id: null,
+                        totalPending: {
+                            $sum: '$price'
+                        }
+                    }
+                }
+            ]).toArray();
+            const totalPending = pendingResult.length > 0 ? pendingResult[0].totalPending : 0;
+
+
+            const paidResult = await paymentCollection.aggregate([
+                {
+                    $match: { status: "paid" }
+                },
+                {
+                    $group: {
+                        _id: null,
+                        totalPaid: {
+                            $sum: '$price'
+                        }
+                    }
+                }
+            ]).toArray();
+            const totalPaid = paidResult.length > 0 ? paidResult[0].totalPaid : 0;
             res.send({
                 users,
                 medicines,
                 orders,
-                revenue
+                revenue,
+                totalPending,
+                totalPaid
             })
         })
 
