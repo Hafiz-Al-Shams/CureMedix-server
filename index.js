@@ -116,6 +116,13 @@ async function run() {
             res.send(result);
         });
 
+        app.get('/medicines/:email', async (req, res) => {
+            const email = req.params.email;
+            const query = { seller: email }
+            const result = await medicineCollection.find(query).toArray();
+            res.send(result);
+        })
+
 
         // category related apis
         app.get('/categories', verifyToken, verifyAdmin, async (req, res) => {
