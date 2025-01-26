@@ -130,6 +130,12 @@ async function run() {
             res.send(result);
         });
 
+        app.post('/medicines', async (req, res) => {
+            const medicine = req.body;
+            const result = await medicineCollection.insertOne(medicine);
+            res.send(result);
+        });
+
 
         app.post('/categories', verifyToken, verifyAdmin, async (req, res) => {
             const category = req.body;
