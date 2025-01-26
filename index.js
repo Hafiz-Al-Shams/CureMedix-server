@@ -72,7 +72,7 @@ async function run() {
             const user = req.body;
             const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' });
             res.send({ token });
-        })
+        });
 
 
         // JWT related middlewares
@@ -89,7 +89,7 @@ async function run() {
                 req.decoded = decoded;
                 next();
             })
-        }
+        };
 
         // using verify admin after verifyToken
         const verifyAdmin = async (req, res, next) => {
@@ -101,7 +101,7 @@ async function run() {
                 return res.status(403).send({ message: 'forbidden access' });
             }
             next();
-        }
+        };
 
 
 
