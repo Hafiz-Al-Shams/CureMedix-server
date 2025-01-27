@@ -360,7 +360,7 @@ async function run() {
 
 
 
-        // stats or analytics
+        // stats
         app.get('/admin-stats', verifyToken, verifyAdmin, async (req, res) => {
             const users = await userCollection.estimatedDocumentCount();
             const medicines = await medicineCollection.estimatedDocumentCount();
