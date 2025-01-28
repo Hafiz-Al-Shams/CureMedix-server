@@ -358,6 +358,25 @@ async function run() {
         });
 
 
+        // testing area
+        app.delete('/clearCarts', async (req, res) => {
+            const email = req.query.email;
+            if (!email) {
+                return res.status(400).send({ message: "Email is required" });
+            }
+            const query = { email: email };
+            const result = await cartCollection.deleteMany(query);
+            res.send(result);
+
+            // if (result.deletedCount > 0) {
+            //     res.send({ success: true, message: "Cart cleared successfully", deletedCount: result.deletedCount });
+            // } else {
+            //     res.send({ success: false, message: "No items found in cart for this user" });
+            // }
+
+        });
+        // testing area
+
 
 
         // stripe payment apis
