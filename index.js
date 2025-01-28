@@ -65,6 +65,7 @@ async function run() {
         const cartCollection = client.db("cureMedixDB").collection("carts");
         const categoryCollection = client.db("cureMedixDB").collection("categories");
         const paymentCollection = client.db("cureMedixDB").collection("payments");
+        const categoryImageCollection = client.db("cureMedixDB").collection("categoryImages");
 
 
         // JWT related apis
@@ -116,6 +117,7 @@ async function run() {
             res.send(result);
         });
 
+
         app.get('/medicines/:email', async (req, res) => {
             const email = req.params.email;
             const query = { seller: email }
@@ -124,8 +126,9 @@ async function run() {
         })
 
 
+        // TODO
         // category related apis
-        app.get('/categories', verifyToken, verifyAdmin, async (req, res) => {
+        app.get('/categories', async (req, res) => {
             const result = await categoryCollection.find().toArray();
             res.send(result);
         });
@@ -149,6 +152,52 @@ async function run() {
             const result = await categoryCollection.insertOne(category);
             res.send(result);
         });
+
+        app.post('/categoryImages', verifyToken, verifyAdmin, async (req, res) => {
+            const categoryImage = req.body;
+            const result = await categoryImageCollection.insertOne(categoryImage);
+            res.send(result);
+        });
+
+
+        app.get('/categoryImages', async (req, res) => {
+            const cursor = categoryImageCollection.find();
+            const result = await cursor.toArray();
+            res.send(result);
+        });
+
+
+        // testing area
+        app.patch('/categories/addCount/:categoryName', async (req, res) => {
+            const categoryName = req.params.categoryName;
+            const filter = { name: categoryName };
+            const updateDoc = {
+                $inc: { count: 1 },
+            };
+            const result = await categoryCollection.updateOne(filter, updateDoc);
+            res.send(result);
+        });
+
+
+
+        app.patch('/categoryImages/:name', verifyToken, verifyAdmin, async (req, res) => {
+            const updatedImage = req.body;
+            const name = req.params.name;
+            const filter = { categoryName: name }
+            const updatedDoc = {
+                $set: {
+                    // categoryName: updatedImage.categoryName,
+                    imageUrl: updatedImage.imageUrl,
+
+                }
+            }
+            const options = { upsert: true };
+
+            const result = await categoryImageCollection.updateOne(filter, updatedDoc, options);
+            res.send(result);
+        });
+
+
 
 
         app.patch('/categories/:id', verifyToken, verifyAdmin, async (req, res) => {
