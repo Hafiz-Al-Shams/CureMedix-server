@@ -125,6 +125,25 @@ async function run() {
         })
 
 
+
+
+
+        // testing area
+
+        app.get('/searchMedicines', async (req, res) => {
+            const searchText = req.query.search || '';
+            const query = { name: { $regex: searchText, $options: 'i' } };
+            const result = await medicineCollection.find(query).toArray();
+            res.send(result);
+        });
+
+        // testing area
+
+
+
+
+
+
         // TODO
         // category related apis
         app.get('/categories', async (req, res) => {
