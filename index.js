@@ -133,11 +133,10 @@ async function run() {
         app.get('/searchMedicines', async (req, res) => {
             const searchText = req.query.search || '';
 
-            // Modified query: Now searches both name and type
             const query = {
                 $or: [
-                    { name: { $regex: searchText, $options: 'i' } }, // Search by name (case-insensitive)
-                    { type: { $regex: searchText, $options: 'i' } }  // Search by type (case-insensitive)
+                    { name: { $regex: searchText, $options: 'i' } }, // while Searching by name (case-insensitive)
+                    { type: { $regex: searchText, $options: 'i' } }  // while Searching by type (case-insensitive)
                 ]
             };
 
