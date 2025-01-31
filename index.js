@@ -107,7 +107,6 @@ async function run() {
 
 
 
-
         // all medicines related apis
 
         app.get('/medicines', async (req, res) => {
@@ -404,6 +403,11 @@ async function run() {
 
 
 
+
+
+
+
+
         // stripe payment apis
         app.post('/create-payment-intent', async (req, res) => {
             const { price } = req.body;
@@ -515,6 +519,7 @@ async function run() {
                 totalPaid
             })
         })
+
 
 
 
