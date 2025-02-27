@@ -26,6 +26,7 @@ app.use(
     cors({
         origin: [
             "http://localhost:5173",
+            "http://localhost:5174",
             "https://cure-medix.web.app",
             "https://cure-medix.firebaseapp.com",
             "https://cure-medix-by-hafiz-al-shams1917.netlify.app",
@@ -56,6 +57,7 @@ async function run() {
         // Send a ping to confirm a successful connection
         // await client.db("admin").command({ ping: 1 });
         // console.log("Pinged your deployment. You successfully connected to MongoDB!");
+
 
 
 
