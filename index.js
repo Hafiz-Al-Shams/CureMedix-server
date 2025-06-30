@@ -68,6 +68,7 @@ async function run() {
         const categoryCollection = client.db("cureMedixDB").collection("categories");
         const paymentCollection = client.db("cureMedixDB").collection("payments");
         const categoryImageCollection = client.db("cureMedixDB").collection("categoryImages");
+        const bannerCollection = client.db("cureMedixDB").collection("banners");
 
 
         // JWT related apis
@@ -148,6 +149,36 @@ async function run() {
 
         // testing area
 
+        // 
+
+        // GET /banners - Fetch all banners from bannerCollection
+        app.get('/banners', async (req, res) => {
+            const cursor = bannerCollection.find();
+            const result = await cursor.toArray();
+            res.send(result);
+        });
+
+        // POST /banners - Add a new banner to bannerCollection
+        app.post('/banners', async (req, res) => {
+            const newBanner = req.body;
+            const result = await bannerCollection.insertOne(newBanner);
+            res.send(result);
+        });
+
+        // GET /banners/seller/:email - Fetch banners for a specific seller
+        app.get('/banners/seller/:email', async (req, res) => {
+            try {
+                const email = req.params.email;
+                const cursor = bannerCollection.find({ seller: email });
+                const result = await cursor.toArray();
+                res.send(result);
+            } catch (error) {
+                console.error("Error fetching banners:", error);
+                res.status(500).send({ message: "Failed to fetch banners" });
+            }
+        });
+
+        // 
 
 
 
@@ -641,3 +672,10 @@ app.get('/', (req, res) => {
 app.listen(port, () => {
     console.log(`CureMedix server is healing you entirely on PORT: ${port}`)
 });
+
+
+
+// new 26May,2025
+
+console.log(__dirname);
+console.log(__filename);
