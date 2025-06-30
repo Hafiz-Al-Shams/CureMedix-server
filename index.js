@@ -178,6 +178,17 @@ async function run() {
             }
         });
 
+
+        app.patch('/banners/:id', verifyToken, verifyAdmin, async (req, res) => {
+            const id = req.params.id;
+            const { isBanner } = req.body;
+            const result = await bannerCollection.updateOne(
+                { _id: new ObjectId(id) },
+                { $set: { isBanner } }
+            );
+            res.send(result);
+        });
+
         // 
 
 
