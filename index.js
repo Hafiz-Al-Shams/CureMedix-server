@@ -149,8 +149,6 @@ async function run() {
 
         // testing area
 
-        // 
-
         // GET /banners - Fetch all banners from bannerCollection
         app.get('/banners', async (req, res) => {
             const cursor = bannerCollection.find();
@@ -189,6 +187,20 @@ async function run() {
             res.send(result);
         });
 
+        app.delete('/banners/:id', verifyToken, verifyAdmin, async (req, res) => {
+            const id = req.params.id;
+            try {
+                const result = await bannerCollection.deleteOne({ _id: new ObjectId(id) });
+                if (result.deletedCount === 1) {
+                    res.send({ message: "Banner deleted successfully" });
+                } else {
+                    res.status(404).send({ error: "Banner not found" });
+                }
+            } catch (error) {
+                console.error("Error deleting banner:", error);
+                res.status(500).send({ error: "Failed to delete banner" });
+            }
+        });
         // 
 
 
