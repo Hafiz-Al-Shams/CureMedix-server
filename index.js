@@ -25,7 +25,7 @@ app.use(
 app.use(express.json());
 
 
-// ✅ NEW: demo doctors (auto-inserted into the "doctors" collection the first time /doctors is called)
+// demo doctors (auto-inserted into the "doctors" collection the first time /doctors is called)
 const defaultSlots = ["09:30 AM", "11:00 AM", "02:15 PM", "04:00 PM", "05:30 PM", "07:00 PM"];
 const seedDoctors = [
     { name: "Dr. Sarah Jenkins", specialty: "General Practitioner", group: "General Practice", rating: 4.9, reviews: 142, years: 12, fee: 35, nextTime: "11:00 AM", slots: defaultSlots, img: "https://images.unsplash.com/photo-1559839734-2b71ea197ec2?w=200&h=200&fit=crop" },
@@ -58,7 +58,7 @@ async function run() {
         const paymentCollection = client.db("cureMedixDB").collection("payments");
         const categoryImageCollection = client.db("cureMedixDB").collection("categoryImages");
         const bannerCollection = client.db("cureMedixDB").collection("banners");
-        // ✅ NEW collections for the Online Doctor feature
+        // collections for the Online Doctor feature
         const doctorCollection = client.db("cureMedixDB").collection("doctors");
         const appointmentCollection = client.db("cureMedixDB").collection("appointments");
 
@@ -332,6 +332,53 @@ async function run() {
         });
 
 
+        // ✅ NEW: the logged-in user's own saved profile details (name + phone) for the Profile page
+        app.get('/users/profile/:email', verifyToken, async (req, res) => {
+            try {
+                const email = req.params.email;
+                if (email !== req.decoded.email) {
+                    return res.status(403).send({ message: 'forbidden access' });
+                }
+                const user = await userCollection.findOne({ email }, { projection: { name: 1, phoneNumber: 1, _id: 0 } });
+                res.send({ name: user?.name || null, phoneNumber: user?.phoneNumber || null });
+            } catch (error) {
+                console.error('Error fetching profile:', error);
+                res.status(500).send({ message: 'Failed to fetch profile' });
+            }
+        });
+
+        // ✅ NEW: update the logged-in user's own name + phone (email can never be changed here)
+        app.patch('/users/profile/:email', verifyToken, async (req, res) => {
+            try {
+                const email = req.params.email;
+                if (email !== req.decoded.email) {
+                    return res.status(403).send({ message: 'forbidden access' });
+                }
+
+                const name = String(req.body.name || '').trim();
+                const phoneNumber = String(req.body.phoneNumber || '').trim();
+
+                if (name.length < 2 || name.length > 60) {
+                    return res.status(400).send({ message: 'Name must be between 2 and 60 characters.' });
+                }
+                // phone is optional; if given it must look like a real number
+                if (phoneNumber && !/^\+?[0-9\s\-()]{7,20}$/.test(phoneNumber)) {
+                    return res.status(400).send({ message: 'Please enter a valid phone number.' });
+                }
+
+                await userCollection.updateOne(
+                    { email },
+                    { $set: { name, phoneNumber, profileUpdatedAt: new Date() } },
+                    { upsert: true }
+                );
+                res.send({ success: true, name, phoneNumber });
+            } catch (error) {
+                console.error('Error updating profile:', error);
+                res.status(500).send({ message: 'Failed to update profile' });
+            }
+        });
+
+
         app.post('/users', async (req, res) => {
             const user = req.body;
             const query = { email: user.email }
@@ -408,7 +455,7 @@ async function run() {
             res.send(result);
         });
 
-        // ✅ saves the quantity chosen on the Cart page, so it survives a reload
+        // saves the quantity chosen on the Cart page, so it survives a reload
         app.patch('/carts/:id', async (req, res) => {
             try {
                 const id = req.params.id;
@@ -450,7 +497,7 @@ async function run() {
         });
 
 
-        // ═════════ ✅ NEW: ONLINE DOCTOR APIS ═════════
+        // ═════════ ONLINE DOCTOR APIS ═════════
 
         // Makes sure demo doctors exist (idempotent: upsert by name, so never duplicates)
         let seeding = null;
@@ -505,7 +552,7 @@ async function run() {
             res.send(result);
         });
 
-        // create an appointment AFTER the Stripe payment succeeded (status is always "pending" for now)
+        // create an appointment AFTER the Stripe payment succeeded (status is always "pending" at first)
         app.post('/appointments', verifyToken, async (req, res) => {
             try {
                 const b = req.body;
@@ -557,6 +604,55 @@ async function run() {
             } catch (error) {
                 console.error('Error creating appointment:', error);
                 res.status(500).send({ message: 'Failed to save appointment' });
+            }
+        });
+
+        // (admin): every appointment of every user, newest first
+        app.get('/manage-appointments', verifyToken, verifyAdmin, async (req, res) => {
+            try {
+                const result = await appointmentCollection.find().sort({ date: -1 }).toArray();
+                res.send(result);
+            } catch (error) {
+                console.error('Error fetching appointments:', error);
+                res.status(500).send({ message: 'Failed to fetch appointments' });
+            }
+        });
+
+        // (admin): change the status of one appointment (pending | confirmed | cancelled)
+        app.patch('/manage-appointments/:id', verifyToken, verifyAdmin, async (req, res) => {
+            try {
+                const { id } = req.params;
+                const { status } = req.body;
+
+                if (!ObjectId.isValid(id) || !['pending', 'confirmed', 'cancelled'].includes(status)) {
+                    return res.status(400).send({ message: 'Invalid request' });
+                }
+
+                const appointment = await appointmentCollection.findOne({ _id: new ObjectId(id) });
+                if (!appointment) return res.status(404).send({ message: 'Appointment not found' });
+
+                // bringing a cancelled booking back is only allowed if nobody took its time slot meanwhile
+                if (appointment.status === 'cancelled' && status !== 'cancelled') {
+                    const taken = await appointmentCollection.findOne({
+                        _id: { $ne: appointment._id },
+                        doctorId: appointment.doctorId,
+                        dateISO: appointment.dateISO,
+                        time: appointment.time,
+                        status: { $ne: 'cancelled' },
+                    });
+                    if (taken) {
+                        return res.status(409).send({ message: 'This time slot has been booked by another patient, so it cannot be restored.' });
+                    }
+                }
+
+                const result = await appointmentCollection.updateOne(
+                    { _id: appointment._id },
+                    { $set: { status, statusUpdatedAt: new Date() } }
+                );
+                res.send(result);
+            } catch (error) {
+                console.error('Error updating appointment:', error);
+                res.status(500).send({ message: 'Failed to update appointment' });
             }
         });
 
@@ -659,13 +755,26 @@ async function run() {
                 }
             ]).toArray();
             const totalPaid = paidResult.length > 0 ? paidResult[0].totalPaid : 0;
+
+            // doctor consultation numbers (kept separate from the medicine numbers above)
+            const appointments = await appointmentCollection.estimatedDocumentCount();
+            const pendingAppointments = await appointmentCollection.countDocuments({ status: 'pending' });
+            const consultationResult = await appointmentCollection.aggregate([
+                { $match: { status: { $ne: 'cancelled' } } },
+                { $group: { _id: null, total: { $sum: '$price' } } }
+            ]).toArray();
+            const consultationRevenue = consultationResult.length > 0 ? consultationResult[0].total : 0;
+
             res.send({
                 users,
                 medicines,
                 orders,
                 revenue,
                 totalPending,
-                totalPaid
+                totalPaid,
+                appointments,
+                pendingAppointments,
+                consultationRevenue
             })
         })
 
