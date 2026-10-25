@@ -25,6 +25,16 @@ app.use(
 app.use(express.json());
 
 
+// ✅ NEW: demo doctors (auto-inserted into the "doctors" collection the first time /doctors is called)
+const defaultSlots = ["09:30 AM", "11:00 AM", "02:15 PM", "04:00 PM", "05:30 PM", "07:00 PM"];
+const seedDoctors = [
+    { name: "Dr. Sarah Jenkins", specialty: "General Practitioner", group: "General Practice", rating: 4.9, reviews: 142, years: 12, fee: 35, nextTime: "11:00 AM", slots: defaultSlots, img: "https://images.unsplash.com/photo-1559839734-2b71ea197ec2?w=200&h=200&fit=crop" },
+    { name: "Dr. Mateo Novak", specialty: "Dermatology", group: "Dermatology", rating: 4.8, reviews: 98, years: 9, fee: 45, nextTime: "02:15 PM", slots: defaultSlots, img: "https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?w=200&h=200&fit=crop" },
+    { name: "Dr. Elena Petrova", specialty: "Pediatrics", group: "Pediatrics", rating: 5.0, reviews: 210, years: 15, fee: 40, nextTime: "09:30 AM", slots: defaultSlots, img: "https://images.unsplash.com/photo-1594824476967-48c8b964273f?w=200&h=200&fit=crop" },
+    { name: "Dr. Oliver Dupont", specialty: "Cardiology", group: "Cardiology", rating: 4.9, reviews: 87, years: 18, fee: 60, nextTime: "11:00 AM", slots: defaultSlots, img: "https://images.unsplash.com/photo-1582750433449-648ed127bb54?w=200&h=200&fit=crop" },
+    { name: "Dr. Sophie Müller", specialty: "General Practitioner", group: "General Practice", rating: 4.7, reviews: 115, years: 8, fee: 30, nextTime: "04:00 PM", slots: defaultSlots, img: "https://images.unsplash.com/photo-1527613426441-4da17471b66d?w=200&h=200&fit=crop" },
+    { name: "Dr. Luca Moretti", specialty: "Neurology", group: "Neurology", rating: 4.9, reviews: 76, years: 14, fee: 55, nextTime: "02:15 PM", slots: defaultSlots, img: "https://images.unsplash.com/photo-1537368910025-700350fe46c7?w=200&h=200&fit=crop" },
+];
 
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.bkfjr.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
@@ -48,6 +58,9 @@ async function run() {
         const paymentCollection = client.db("cureMedixDB").collection("payments");
         const categoryImageCollection = client.db("cureMedixDB").collection("categoryImages");
         const bannerCollection = client.db("cureMedixDB").collection("banners");
+        // ✅ NEW collections for the Online Doctor feature
+        const doctorCollection = client.db("cureMedixDB").collection("doctors");
+        const appointmentCollection = client.db("cureMedixDB").collection("appointments");
 
 
         // JWT related apis
@@ -395,7 +408,7 @@ async function run() {
             res.send(result);
         });
 
-        // ✅ NEW: saves the quantity chosen on the Cart page, so it survives a reload
+        // ✅ saves the quantity chosen on the Cart page, so it survives a reload
         app.patch('/carts/:id', async (req, res) => {
             try {
                 const id = req.params.id;
@@ -434,6 +447,117 @@ async function run() {
             const result = await cartCollection.deleteMany(query);
             res.send(result);
 
+        });
+
+
+        // ═════════ ✅ NEW: ONLINE DOCTOR APIS ═════════
+
+        // Makes sure demo doctors exist (idempotent: upsert by name, so never duplicates)
+        let seeding = null;
+        const ensureDoctors = () => {
+            if (!seeding) {
+                seeding = (async () => {
+                    const count = await doctorCollection.estimatedDocumentCount();
+                    if (count === 0) {
+                        await doctorCollection.bulkWrite(
+                            seedDoctors.map((d) => ({ updateOne: { filter: { name: d.name }, update: { $setOnInsert: d }, upsert: true } }))
+                        );
+                    }
+                })().finally(() => { seeding = null; });
+            }
+            return seeding;
+        };
+
+        // all doctors (public)
+        app.get('/doctors', async (req, res) => {
+            try {
+                await ensureDoctors();
+                const result = await doctorCollection.find().sort({ _id: 1 }).toArray();
+                res.send(result);
+            } catch (error) {
+                console.error('Error fetching doctors:', error);
+                res.status(500).send({ message: 'Failed to fetch doctors' });
+            }
+        });
+
+        // already booked times of one doctor on one date -> ["11:00 AM", ...] (public, used to disable slots)
+        app.get('/appointment-slots', async (req, res) => {
+            try {
+                const { doctorId, date } = req.query;
+                if (!doctorId || !date) return res.send([]);
+                const booked = await appointmentCollection
+                    .find({ doctorId, dateISO: date, status: { $ne: 'cancelled' } })
+                    .project({ time: 1, _id: 0 })
+                    .toArray();
+                res.send(booked.map((b) => b.time));
+            } catch (error) {
+                console.error('Error fetching slots:', error);
+                res.status(500).send({ message: 'Failed to fetch slots' });
+            }
+        });
+
+        // all appointments of the logged-in user (own email only)
+        app.get('/appointments/:email', verifyToken, async (req, res) => {
+            if (req.params.email !== req.decoded.email) {
+                return res.status(403).send({ message: 'forbidden access' });
+            }
+            const result = await appointmentCollection.find({ email: req.params.email }).sort({ date: -1 }).toArray();
+            res.send(result);
+        });
+
+        // create an appointment AFTER the Stripe payment succeeded (status is always "pending" for now)
+        app.post('/appointments', verifyToken, async (req, res) => {
+            try {
+                const b = req.body;
+                const email = req.decoded.email; // never trust the email from the browser
+
+                // 1) basic validation
+                if (!b.doctorId || !ObjectId.isValid(b.doctorId) || !/^\d{4}-\d{2}-\d{2}$/.test(b.dateISO || '') || !b.time || !b.transactionId || !b.patientName?.trim() || !b.reason?.trim()) {
+                    return res.status(400).send({ message: 'Invalid booking data' });
+                }
+
+                // 2) doctor must exist and the time must be one of his slots
+                const doctor = await doctorCollection.findOne({ _id: new ObjectId(b.doctorId) });
+                if (!doctor) return res.status(404).send({ message: 'Doctor not found' });
+                if (!doctor.slots.includes(b.time)) return res.status(400).send({ message: 'Invalid time slot' });
+
+                // 3) slot must still be free
+                const taken = await appointmentCollection.findOne({ doctorId: b.doctorId, dateISO: b.dateISO, time: b.time, status: { $ne: 'cancelled' } });
+                if (taken) return res.status(409).send({ message: 'This time slot was just booked by someone else' });
+
+                // 4) the Stripe payment must be real, succeeded and equal to the doctor's fee
+                const intent = await stripe.paymentIntents.retrieve(b.transactionId);
+                if (intent.status !== 'succeeded' || intent.amount !== Math.round(doctor.fee * 100)) {
+                    return res.status(402).send({ message: 'Payment could not be verified' });
+                }
+
+                // 5) the same payment cannot create two bookings
+                const duplicate = await appointmentCollection.findOne({ transactionId: b.transactionId });
+                if (duplicate) return res.status(409).send({ message: 'This payment is already used' });
+
+                const appointment = {
+                    type: 'consultation',
+                    email,
+                    doctorId: b.doctorId,
+                    doctorName: doctor.name,
+                    specialty: doctor.specialty,
+                    doctorImg: doctor.img,
+                    patientName: b.patientName.trim(),
+                    reason: b.reason.trim(),
+                    dateISO: b.dateISO,
+                    dateText: b.dateText,
+                    time: b.time,
+                    price: doctor.fee, // from the database, not from the browser
+                    transactionId: b.transactionId,
+                    date: new Date(),
+                    status: 'pending', // pending | confirmed | cancelled
+                };
+                const result = await appointmentCollection.insertOne(appointment);
+                res.send({ insertedId: result.insertedId });
+            } catch (error) {
+                console.error('Error creating appointment:', error);
+                res.status(500).send({ message: 'Failed to save appointment' });
+            }
         });
 
 
