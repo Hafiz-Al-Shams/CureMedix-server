@@ -8,19 +8,6 @@ const app = express();
 const port = process.env.PORT || 5000;
 
 
-
-// const calculateOrderAmount = (items) => {
-//     // Calculate the order total on the server to prevent
-//     // people from directly manipulating the amount on the client
-//     let total = 0;
-//     items.forEach((item) => {
-//         total += item.amount;
-//     });
-//     return total;
-// };
-
-
-
 // middleware
 app.use(
     cors({
@@ -30,6 +17,7 @@ app.use(
             "https://cure-medix.web.app",
             "https://cure-medix.firebaseapp.com",
             "https://cure-medix-by-hafiz-al-shams1917.netlify.app",
+            "https://cure-medix.vercel.app",
         ],
         credentials: true,
     })
@@ -52,15 +40,6 @@ const client = new MongoClient(uri, {
 
 async function run() {
     try {
-        // Connect the client to the server	(optional starting in v4.7)
-        // await client.connect();
-        // Send a ping to confirm a successful connection
-        // await client.db("admin").command({ ping: 1 });
-        // console.log("Pinged your deployment. You successfully connected to MongoDB!");
-
-
-
-
 
         const medicineCollection = client.db('cureMedixDB').collection('medicines');
         const userCollection = client.db("cureMedixDB").collection("users");
@@ -128,11 +107,6 @@ async function run() {
         })
 
 
-
-
-
-        // testing area
-
         app.get('/searchMedicines', async (req, res) => {
             const searchText = req.query.search || '';
 
@@ -147,7 +121,7 @@ async function run() {
             res.send(result);
         });
 
-        // testing area
+
 
         // GET /banners - Fetch all banners from bannerCollection
         app.get('/banners', async (req, res) => {
@@ -204,10 +178,6 @@ async function run() {
         // 
 
 
-
-
-
-        // TODO
         // category related apis
         app.get('/categories', async (req, res) => {
             const result = await categoryCollection.find().toArray();
@@ -349,9 +319,6 @@ async function run() {
         });
 
 
-
-
-
         app.post('/users', async (req, res) => {
             const user = req.body;
             const query = { email: user.email }
@@ -414,9 +381,6 @@ async function run() {
 
 
 
-
-
-
         // cart apis
         app.get('/carts', async (req, res) => {
             const email = req.query.email;
@@ -429,6 +393,27 @@ async function run() {
             const cartItem = req.body;
             const result = await cartCollection.insertOne(cartItem);
             res.send(result);
+        });
+
+        // ✅ NEW: saves the quantity chosen on the Cart page, so it survives a reload
+        app.patch('/carts/:id', async (req, res) => {
+            try {
+                const id = req.params.id;
+                const quantity = Number(req.body.quantity);
+
+                // accept only whole numbers from 1 to 999
+                if (!Number.isInteger(quantity) || quantity < 1 || quantity > 999) {
+                    return res.status(400).send({ message: 'Quantity must be a whole number between 1 and 999' });
+                }
+
+                const filter = { _id: new ObjectId(id) };
+                const updatedDoc = { $set: { quantity } };
+                const result = await cartCollection.updateOne(filter, updatedDoc);
+                res.send(result);
+            } catch (error) {
+                console.error('Error updating cart quantity:', error);
+                res.status(500).send({ message: 'Failed to update quantity' });
+            }
         });
 
         app.delete('/carts/:id', async (req, res) => {
@@ -449,20 +434,7 @@ async function run() {
             const result = await cartCollection.deleteMany(query);
             res.send(result);
 
-            // if (result.deletedCount > 0) {
-            //     res.send({ success: true, message: "Cart cleared successfully", deletedCount: result.deletedCount });
-            // } else {
-            //     res.send({ success: false, message: "No items found in cart for this user" });
-            // }
-
         });
-        // testing area
-
-
-
-
-
-
 
 
         // stripe payment apis
@@ -520,10 +492,6 @@ async function run() {
             const medicines = await medicineCollection.estimatedDocumentCount();
             const orders = await paymentCollection.estimatedDocumentCount();
 
-            // simple but not the best way
-            // const payments = await paymentCollection.find().toArray();
-            // const revenue = payments.reduce((total, payment) => total + payment.price, 0);
-
             const result = await paymentCollection.aggregate([
                 {
                     $group: {
@@ -577,12 +545,6 @@ async function run() {
             })
         })
 
-
-
-
-        // testing
-        // testing
-
         // manage payment apis
         app.get('/manage-payments', async (req, res) => {
             const payments = await paymentCollection.find().toArray();
@@ -603,88 +565,12 @@ async function run() {
         });
 
 
-
-        // testing
-        // testing
-
-
-
-
-
-
-
-
-
-        // testing
-
-        // order status
-        // app.get('/order-stats', async (req, res) => {
-        //     const result = await paymentCollection.aggregate([
-        //         {
-        //             $unwind: '$medicineIds'
-        //         },
-        // {
-        //     $lookup: {
-        //         from: 'medicines',
-        //         localField: 'medicineIds',
-        //         foreignField: '_id',
-        //         as: 'medicineItems'
-        //     }
-        // },
-        // {
-        //     $unwind: '$medicineItems'
-        // },
-
-
-        // {
-        //     $group: {
-        //         _id: '$medicineItems.category',
-        //         quantity: { $sum: 1 },
-        //         revenue: { $sum: '$medicineItems.price' }
-        //     }
-        // },
-        // {
-        //     $project: {
-        //         _id: 0,
-        //         category: '$_id',
-        //         quantity: '$quantity',
-        //         revenue: '$revenue'
-        //     }
-        // }
-
-
-        //     ]).toArray();
-
-        //     res.send(result);
-
-        // });
-
-        // testing
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     } finally {
         // Ensures that the client will close when you finish/error
         // await client.close();
     }
 }
 run().catch(console.dir);
-
-
-
-
 
 
 app.get('/', (req, res) => {
@@ -695,10 +581,6 @@ app.get('/', (req, res) => {
 app.listen(port, () => {
     console.log(`CureMedix server is healing you entirely on PORT: ${port}`)
 });
-
-
-
-// new 26May,2025
 
 console.log(__dirname);
 console.log(__filename);
