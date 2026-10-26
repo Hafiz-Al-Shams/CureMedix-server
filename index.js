@@ -52,6 +52,8 @@ async function run() {
     try {
 
         const medicineCollection = client.db('cureMedixDB').collection('medicines');
+        // ✅ deleted medicines are archived here, so a seller's past sales never disappear from reports
+        const deletedMedicineCollection = client.db('cureMedixDB').collection('deletedMedicines');
         const userCollection = client.db("cureMedixDB").collection("users");
         const cartCollection = client.db("cureMedixDB").collection("carts");
         const categoryCollection = client.db("cureMedixDB").collection("categories");
@@ -132,6 +134,194 @@ async function run() {
 
             const result = await medicineCollection.find(query).toArray();
             res.send(result);
+        });
+
+
+        // ✅ a seller updates ONE of his OWN medicines (ownership is checked on the server)
+        app.patch('/medicines/:id', verifyToken, async (req, res) => {
+            try {
+                const { id } = req.params;
+                if (!ObjectId.isValid(id)) {
+                    return res.status(400).send({ message: 'Invalid medicine id' });
+                }
+
+                const medicine = await medicineCollection.findOne({ _id: new ObjectId(id) });
+                if (!medicine) return res.status(404).send({ message: 'Medicine not found' });
+                if (medicine.seller !== req.decoded.email) {
+                    return res.status(403).send({ message: 'forbidden access' }); // not this seller's medicine
+                }
+
+                const b = req.body;
+                const name = String(b.name || '').trim();
+                const description = String(b.description || '').trim();
+                const type = String(b.type || '').trim();
+                const category = String(b.category || '').trim();
+                const company = String(b.company || '').trim();
+                const unit = String(b.unit || 'Mg').trim();
+                const price = Number(b.price);
+                const stock = Number(b.stock);
+                const discount = b.discount === true || b.discount === 'true';
+                const percent = discount ? parseInt(b.discountPercentage, 10) || 0 : 0;
+
+                if (!name || name.length > 100) return res.status(400).send({ message: 'Medicine name is required (max 100 characters).' });
+                if (!description) return res.status(400).send({ message: 'Description is required.' });
+                if (!type || !category || !company) return res.status(400).send({ message: 'Type, category and company are required.' });
+                if (!Number.isFinite(price) || price < 0) return res.status(400).send({ message: 'Please enter a valid price.' });
+                if (!Number.isInteger(stock) || stock < 0) return res.status(400).send({ message: 'Stock must be a whole number (0 or more).' });
+                if (percent < 0 || percent > 100) return res.status(400).send({ message: 'Invalid discount percentage.' });
+
+                const updatedDoc = {
+                    name, description, type, category, company, unit, price, stock,
+                    discount,
+                    discountPercentage: `${percent}%`,
+                    updatedAt: new Date(),
+                };
+                // image is optional on update: only replace it if a new one was sent
+                if (b.image && typeof b.image === 'string') updatedDoc.image = b.image;
+
+                const result = await medicineCollection.updateOne({ _id: medicine._id }, { $set: updatedDoc });
+
+                // keep the category counters correct if the seller moved the medicine to another category
+                if (medicine.category !== category) {
+                    await categoryCollection.updateOne({ name: medicine.category, count: { $gt: 0 } }, { $inc: { count: -1 } });
+                    await categoryCollection.updateOne({ name: category }, { $inc: { count: 1 } });
+                }
+
+                res.send({ success: true, modifiedCount: result.modifiedCount });
+            } catch (error) {
+                console.error('Error updating medicine:', error);
+                res.status(500).send({ message: 'Failed to update medicine' });
+            }
+        });
+
+
+        // ✅ a seller deletes ONE of his OWN medicines (a copy is archived so his sales history stays correct)
+        app.delete('/medicines/:id', verifyToken, async (req, res) => {
+            try {
+                const { id } = req.params;
+                if (!ObjectId.isValid(id)) {
+                    return res.status(400).send({ message: 'Invalid medicine id' });
+                }
+
+                const medicine = await medicineCollection.findOne({ _id: new ObjectId(id) });
+                if (!medicine) return res.status(404).send({ message: 'Medicine not found' });
+                if (medicine.seller !== req.decoded.email) {
+                    return res.status(403).send({ message: 'forbidden access' });
+                }
+
+                const { _id, ...rest } = medicine;
+                await deletedMedicineCollection.insertOne({ ...rest, originalId: _id, deletedAt: new Date() });
+                const result = await medicineCollection.deleteOne({ _id });
+
+                if (medicine.category) {
+                    await categoryCollection.updateOne({ name: medicine.category, count: { $gt: 0 } }, { $inc: { count: -1 } });
+                }
+
+                res.send({ success: true, deletedCount: result.deletedCount });
+            } catch (error) {
+                console.error('Error deleting medicine:', error);
+                res.status(500).send({ message: 'Failed to delete medicine' });
+            }
+        });
+
+
+        // ✅ FIXED: Seller Home dashboard in ONE call (stats + sales rows), only for the logged-in seller
+        app.get('/seller-dashboard/:email', verifyToken, async (req, res) => {
+            try {
+                const email = req.params.email;
+                if (email !== req.decoded.email) {
+                    return res.status(403).send({ message: 'forbidden access' });
+                }
+
+                const [activeMeds, archivedMeds, banners] = await Promise.all([
+                    medicineCollection.find({ seller: email }).toArray(),
+                    deletedMedicineCollection.find({ seller: email }).toArray(),
+                    bannerCollection.find({ seller: email }).toArray(),
+                ]);
+
+                // lookup tables: this seller's medicines (current + deleted) by id and by name
+                const norm = (v) => String(v || '').trim().toLowerCase();
+                const medById = new Map();
+                const medByName = new Map();
+                activeMeds.forEach((m) => { medById.set(String(m._id), m); medByName.set(norm(m.name), m); });
+                archivedMeds.forEach((m) => {
+                    medById.set(String(m.originalId), m);
+                    if (!medByName.has(norm(m.name))) medByName.set(norm(m.name), m);
+                });
+
+                // does this order item belong to this seller? (seller email saved in the order is the main rule)
+                const belongsToSeller = (item) => {
+                    if (item.seller) return item.seller === email;
+                    if (medById.has(String(item.medicineId))) return true;
+                    return medByName.has(norm(item.name));
+                };
+
+                const round2 = (n) => Math.round(n * 100) / 100;
+                const sales = [];
+
+                // only load orders that can contain this seller's items
+                const payments = await paymentCollection
+                    .find(
+                        { $or: [{ 'items.seller': email }, { 'items.medicineId': { $in: [...medById.keys()] } }] },
+                        { projection: { transactionId: 1, date: 1, status: 1, items: 1 } }
+                    )
+                    .toArray();
+
+                for (const p of payments) {
+                    const fulfilled = String(p.status || '').toLowerCase() === 'paid'; // approved by admin
+                    (p.items || []).forEach((item, idx) => {
+                        if (!item || !belongsToSeller(item)) return;
+
+                        const med = medById.get(String(item.medicineId)) || medByName.get(norm(item.name)) || null;
+
+                        let quantity = Number(item.quantity ?? item.qty ?? 1);
+                        if (!Number.isFinite(quantity) || quantity < 1) quantity = 1;
+
+                        // use the price saved AT PURCHASE TIME (unitPrice / lineTotal), never today's price
+                        let unitPrice = Number(item.unitPrice ?? item.price);
+                        if (!Number.isFinite(unitPrice)) unitPrice = Number(med?.price) || 0;
+                        const lineTotal = Number(item.lineTotal);
+                        const total = Number.isFinite(lineTotal) ? round2(lineTotal) : round2(unitPrice * quantity);
+
+                        sales.push({
+                            key: `${p._id}-${idx}`,
+                            orderRef: String(p.transactionId || '').slice(-8).toUpperCase(),
+                            date: p.date,
+                            name: item.name || med?.name || 'Medicine',
+                            category: med?.category || item.category || '—',
+                            quantity,
+                            unitPrice,
+                            total,
+                            status: fulfilled ? 'Fulfilled' : 'Processing',
+                        });
+                    });
+                }
+                sales.sort((a, b) => new Date(b.date) - new Date(a.date)); // newest first
+
+                // numbers for the 4 cards
+                const sum = (rows) => round2(rows.reduce((t, r) => t + r.total, 0));
+                const paidRows = sales.filter((s) => s.status === 'Fulfilled');
+                const pendingRows = sales.filter((s) => s.status === 'Processing');
+                const acceptedBanners = banners.filter((b) => b.isBanner === true).length;
+
+                res.send({
+                    stats: {
+                        totalRevenue: sum(paidRows),            // approved by admin
+                        paidCount: paidRows.length,
+                        pendingRevenue: sum(pendingRows),       // still waiting for admin approval
+                        pendingCount: pendingRows.length,
+                        medicinesListed: activeMeds.length,
+                        totalStock: activeMeds.reduce((t, m) => t + (Number(m.stock) || 0), 0),
+                        bannerRequests: banners.length,
+                        bannersAccepted: acceptedBanners,
+                        bannersPending: banners.length - acceptedBanners,
+                    },
+                    sales,
+                });
+            } catch (error) {
+                console.error('Error building seller dashboard:', error);
+                res.status(500).send({ message: 'Failed to load seller dashboard' });
+            }
         });
 
 
@@ -332,7 +522,7 @@ async function run() {
         });
 
 
-        // ✅ NEW: the logged-in user's own saved profile details (name + phone) for the Profile page
+        // ✅ the logged-in user's own saved profile details (name + phone) for the Profile page
         app.get('/users/profile/:email', verifyToken, async (req, res) => {
             try {
                 const email = req.params.email;
@@ -347,7 +537,7 @@ async function run() {
             }
         });
 
-        // ✅ NEW: update the logged-in user's own name + phone (email can never be changed here)
+        // ✅ update the logged-in user's own name + phone (email can never be changed here)
         app.patch('/users/profile/:email', verifyToken, async (req, res) => {
             try {
                 const email = req.params.email;
